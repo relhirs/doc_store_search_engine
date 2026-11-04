@@ -1,0 +1,108 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>edu.yu.cs.com1320</groupId>
+    <artifactId>document-store-demo-engine</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Document Store - Demo Engine</name>
+    <description>The Stage 6 store compiled to JavaScript, with a JSON facade for the web demo.</description>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <junit.jupiter.version>5.10.2</junit.jupiter.version>
+        <teavm.version>0.16.0</teavm.version>
+    </properties>
+
+    <dependencies>
+        <!-- Gson stays out so that a path into DocumentPersistenceManager fails the TeaVM build -->
+        <dependency>
+            <groupId>edu.yu.cs.com1320</groupId>
+            <artifactId>document-store-stage6</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.code.gson</groupId>
+                    <artifactId>gson</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.teavm</groupId>
+            <artifactId>teavm-classlib</artifactId>
+            <version>${teavm.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.teavm</groupId>
+            <artifactId>teavm-jso</artifactId>
+            <version>${teavm.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.teavm</groupId>
+                <artifactId>teavm-maven-plugin</artifactId>
+                <version>${teavm.version}</version>
+                <configuration>
+                    <targetType>JAVASCRIPT</targetType>
+                    <jsModuleType>ES2015</jsModuleType>
+                    <optimizationLevel>ADVANCED</optimizationLevel>
+                    <minifying>true</minifying>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>engine</id>
+                        <goals><goal>compile</goal></goals>
+                        <phase>process-classes</phase>
+                        <configuration>
+                            <mainClass>edu.yu.cs.com1320.project.demo.DemoEngine</mainClass>
+                            <targetFileName>engine.js</targetFileName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>parity</id>
+                        <goals><goal>compile</goal></goals>
+                        <phase>process-classes</phase>
+                        <configuration>
+                            <mainClass>edu.yu.cs.com1320.project.demo.ParityExport</mainClass>
+                            <targetFileName>parity.js</targetFileName>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -52,13 +52,18 @@ public class DocumentStoreImpl implements DocumentStore {
     private int currentDocBytes = 0;
 
     public DocumentStoreImpl() {
-        this(null); 
+        this((File) null);
     }
 
 
     public DocumentStoreImpl(File baseDIR) {
+        this(new DocumentPersistenceManager(baseDIR));
+    }
+
+
+    public DocumentStoreImpl(PersistenceManager<URI, Document> pm) {
         this.storage = new BTreeImpl<URI, Document>();
-        this.pm = new DocumentPersistenceManager(baseDIR);
+        this.pm = pm;
         this.storage.setPersistenceManager(this.pm);
         this.commandStack = new StackImpl<Undoable>();
         this.trie = new TrieImpl<>();

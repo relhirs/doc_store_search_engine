@@ -94,6 +94,11 @@ async function fullTour() {
   assert.equal(await page.locator('.spine', { hasText: 'hash-tables' }).count(), 1);
   assert.equal(await page.locator('.spine', { hasText: 'stacks' }).count(), 0);
   assert.match(await page.locator('.tour').innerText(), /That's the tour/);
+
+  await page.getByRole('searchbox').fill('binary');
+  await page.waitForTimeout(400);
+  const shown = await page.locator('.result').count();
+  assert.match(await strip(page), new RegExp(`\\b${shown} results?\\b`), 'search still works on the closing card');
   await page.context().close();
   pass('the full tour runs to its end');
 }

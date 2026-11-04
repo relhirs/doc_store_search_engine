@@ -78,7 +78,7 @@ export function useDemo() {
 
   const advanceTour = useCallback((response: Response) => {
     const position = tourRef.current;
-    if (!position || !TOUR[position.step].tasks[position.task].done(response)) {
+    if (!position || position.step >= TOUR.length || !TOUR[position.step].tasks[position.task].done(response)) {
       return;
     }
     const step = TOUR[position.step];

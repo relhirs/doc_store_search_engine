@@ -198,9 +198,7 @@ function Spotlight({ demo, tour }: { demo: Demo; tour: TourPosition }) {
         <p className="spotlight__count">{tour.stop + 1} of {STOPS.length}</p>
         <h2>{stop.title}</h2>
         <p>{stop.body}</p>
-        {stop.task && (
-          <p className="spotlight__task">{done ? 'Done. Press Next to carry on.' : stop.task.text}</p>
-        )}
+        {stop.task && !done && <p className="spotlight__task">{stop.task.text}</p>}
         <div className="spotlight__actions">
           {!last && <button type="button" className="quiet" onClick={() => demo.setTour(null)}>End tour</button>}
           {tour.stop > 0 && <button type="button" className="quiet" onClick={() => go(tour.stop - 1)}>Back</button>}

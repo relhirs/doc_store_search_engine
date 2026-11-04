@@ -151,7 +151,7 @@ async function tourByHand() {
   await page.getByRole('searchbox').fill('tr');
   await page.waitForTimeout(400);
   assert.equal(await main(page).innerText(), 'Next');
-  assert.match(await card(page).innerText(), /Done/);
+  assert.equal(await page.locator('.spotlight__task').count(), 0);
   await press(page);
   await press(page);
   await press(page);

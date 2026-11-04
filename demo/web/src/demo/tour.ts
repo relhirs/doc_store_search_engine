@@ -36,7 +36,7 @@ export const STOPS: TourStop[] = [
   },
   {
     title: 'The memory wall',
-    body: "Every bar is one document, and its height shows its size. Blue bars are in RAM and ochre bars are on disk. RAM only holds so many documents, so the rest wait on disk as JSON. The white mark shows which document leaves next.",
+    body: "Every bar is one document, and its height shows its size. Blue bars are in RAM and brown bars are on disk. RAM only holds so many documents, so the rest wait on disk as JSON. The white mark shows which document leaves next.",
     target: 'wall',
   },
   {
@@ -60,7 +60,7 @@ export const STOPS: TourStop[] = [
   },
   {
     title: 'Ranked results',
-    body: "Results rank by how many matching words each document holds. The bar under a result is blue if that document is in RAM and ochre if it's on disk. Searching counts as using a document, so it can pull documents back from disk and push others out.",
+    body: "Results rank by how many matching words each document holds. The bar under a result is blue if that document is in RAM and brown if it's on disk. Searching counts as using a document, so it can pull documents back from disk and push others out.",
     target: 'results',
   },
   {

@@ -202,6 +202,33 @@ public class TrieImplTest {
     }
 
     @Test
+    void nextCharacters_ListsTheBranchesInOrder() {
+        trie.put("tree", "a");
+        trie.put("trie", "a");
+        trie.put("top", "a");
+        assertEquals(List.of('o', 'r'), trie.nextCharacters("t"));
+        assertEquals(List.of('e', 'i'), trie.nextCharacters("tr"));
+        assertEquals(List.of('t'), trie.nextCharacters(""));
+        assertTrue(trie.nextCharacters("tree").isEmpty());
+    }
+
+    @Test
+    void nextCharacters_MissingOrUnusablePrefix_IsEmpty() {
+        trie.put("tree", "a");
+        assertTrue(trie.nextCharacters("x").isEmpty());
+        assertTrue(trie.nextCharacters("日本語").isEmpty());
+        assertTrue(trie.nextCharacters(null).isEmpty());
+    }
+
+    @Test
+    void nextCharacters_DropsBranchesOnceTheirWordsAreGone() {
+        trie.put("tree", "a");
+        trie.put("trie", "a");
+        trie.delete("trie", "a");
+        assertEquals(List.of('e'), trie.nextCharacters("tr"));
+    }
+
+    @Test
     void get_ValuesComeBackInInsertionOrder() {
         List<String> inserted = List.of("zebra", "apple", "mango", "kiwi", "fig", "lime");
         for (String value : inserted) {

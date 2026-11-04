@@ -8,8 +8,8 @@ internally*, and *what is technically interesting about it*.
 
 ## What this project is
 
-A from-scratch, in-memory/on-disk **document store and search engine**, built in Java as a
-multi-stage semester project (Yeshiva University, COM 1320 - Data Structures). Each `project/stageN`
+A custom, in-memory/on-disk **document store and search engine**, built in Java as a
+multi-stage semester project (Yeshiva University, COM 1320 - Data Structures). Each `stageN`
 folder is a successive, cumulative iteration of the same system, each adding a new capability on
 top of the last. **Stage 6 is the final, most complete version** and is the one to describe when
 summarizing "what the project does."
@@ -20,7 +20,8 @@ prefix**, with results ranked by relevance. On top of that, it adds metadata-bas
 full multi-level undo, and a two-tier (RAM + disk) memory management system with configurable
 limits and automatic eviction — i.e., it behaves like a miniature, embeddable search-engine /
 document-database hybrid, similar in spirit to a simplified Lucene + key-value store, but
-implemented entirely with custom, hand-built data structures rather than off-the-shelf libraries.
+with its index, storage, eviction queue, and undo history built on custom data structures rather
+than off-the-shelf libraries.
 
 ## Core capabilities (Stage 6, final version)
 
@@ -34,7 +35,7 @@ implemented entirely with custom, hand-built data structures rather than off-the
   (`searchByKeywordAndMetadata`, `searchByPrefixAndMetadata`).
 - **Bulk/targeted deletion**: delete all documents matching a keyword, a prefix, a metadata filter,
   or any combination thereof, in one call.
-- **Full undo/redo-style history**: every mutating operation (put, delete, setMetadata, bulk delete)
+- **Full undo history**: every mutating operation (put, delete, setMetadata, bulk delete)
   is undoable, including undo of a specific document's last action by URI, backed by a custom
   command-pattern stack (`Undoable`, `GenericCommand`, `CommandSet`).
   - `undo()` reverses the single most recent action system-wide.
@@ -48,7 +49,11 @@ implemented entirely with custom, hand-built data structures rather than off-the
     RAM to disk (serialized to JSON), and transparently reloaded into RAM on next access — a
     simplified LRU cache / virtual-memory-style design.
   - "Last used" time is tracked per document and updated on every get, search hit, or metadata
-    write, so eviction order always reflects real usage, not just insertion order.
+    write, so eviction order reflects real usage, not just insertion order. Reads the caller
+    didn't ask for, such as checking a document against a metadata filter, don't count as use and
+    leave a document on disk where it is.
+  - Use times come from a strictly increasing clock (`UseClock`), so separate uses never share a
+    time. A search is one use: all of its results get the same time.
 
 ## How search ranking works
 
@@ -58,10 +63,12 @@ Relevance ranking is **word-frequency based**, not a general TF-IDF/BM25 model:
 - Prefix search ranks matches by the **summed occurrence count of every distinct word in the
   document that starts with the given prefix** (e.g., searching "pre" on a doc containing "prefix"
   10 times and "prepare" 3 times scores it 13), descending.
+- Documents with equal counts are ordered by URI, so results are always in a stable order.
 - Search is case-sensitive by design.
 - Ranking is performed with custom `Comparator<URI>` instances passed into the trie's traversal/sort
   methods — the trie itself is ranking-agnostic; callers supply the ordering logic, which keeps the
-  ranking strategy decoupled from the indexing structure.
+  ranking strategy decoupled from the indexing structure. Each document is scored once per search,
+  and scoring doesn't count as using it.
 - Every word-count lookup for ranking happens against a per-document `HashMap<String,Integer>`
   word-frequency map (`wordMap`) that's built once when a document is ingested (tokenized on
   ingestion) and persisted/deserialized alongside the document, so re-ranking never requires
@@ -80,24 +87,25 @@ Relevance ranking is **word-frequency based**, not a general TF-IDF/BM25 model:
   - Deleting a document removes it from every trie node for every word it contained, keeping the
     index consistent with storage on delete/undo.
 - **B-Tree** — the primary key-value storage structure mapping `URI -> Document`, used instead of a
-  plain hash map specifically because it supports **ordered traversal and out-of-core (disk)
-  storage**: when a document is evicted from RAM, the B-Tree node's entry for that URI can hand off
+  plain hash map specifically because it supports **out-of-core (disk) storage**: when a document is evicted from RAM, the B-Tree node's entry for that URI can hand off
   to the persistence manager to serialize the value to disk and only keep the key resident,
   reloading the value transparently when accessed again. Implemented as a genuine disk-aware
-  B-tree (order 4 internally) with linked leaf nodes, not just wrapped around a `TreeMap`.
+  B-tree (order 4 internally), not just wrapped around a `TreeMap`. Deleting a key leaves an empty
+  entry in place rather than rebalancing the tree.
 - **Min-Heap** — used as the eviction-priority queue for the LRU memory manager. Each entry wraps a
   document's URI and compares by `lastUseTime`, so `remove()` always pops the least-recently-used
   document in O(log n), and `reHeapify()` lets the store re-prioritize a document immediately after
   it's touched, without rebuilding the heap.
 - **Custom Stack** — backs the undo history (LIFO command stack), supporting both single-step undo
   and the search for a specific document's history among other interleaved commands.
-- **Custom HashTable** — an earlier/internal associative structure built as part of the staged
-  curriculum (predecessor to switching the primary store over to the B-Tree in the final stage, in
-  order to support disk paging).
+- **Custom HashTable** — used in Stages 2 to 5 and replaced by the B-Tree in Stage 6 to support disk
+  paging. It isn't part of the final version.
 
-All of the above (`Trie`, `BTree`, `MinHeap`, `Stack`, `HashTable`) are **implemented from
-scratch** — no `java.util.TreeMap`/`PriorityQueue`/etc. under the hood — as the explicit point of
-the course was learning to build and reason about these data structures directly.
+The `Trie`, `BTree`, `MinHeap`, and `Stack` are **custom structures** — no
+`java.util.TreeMap`/`PriorityQueue`/etc. under the hood — as the explicit point of the course was
+learning to build and reason about these data structures directly. Java's `HashMap` and `HashSet`
+are still used for smaller jobs: per-document word counts and metadata, the trie's per-word URI
+sets, the heap's element-to-index lookup, and tracking which documents are in RAM.
 
 ## Persistence / disk tier
 
@@ -105,8 +113,10 @@ the course was learning to build and reason about these data structures directly
   the document's text/binary content (binary is Base64-encoded), its full word-frequency map, and
   its metadata, so a document can be fully reconstructed — including search ranking data — without
   re-parsing the original text.
-- Each document is written to a file path derived deterministically from its URI (with scheme
-  stripped), under a configurable base directory.
+- Each document is written to a file path derived deterministically from its URI, under a
+  configurable base directory. The `http://` scheme is stripped, `https://` documents go in an
+  `https/` folder so the two never share a file, and `..` in a URI is encoded so it can't leave the
+  base directory.
 - Deserialization rebuilds a `Document` object and restores its metadata entries individually.
 
 ## Error handling / contract design
@@ -121,16 +131,19 @@ the course was learning to build and reason about these data structures directly
 
 ## Tools & technologies
 
-- **Language**: Java 17
+- **Language**: Java 17 (Stage 1's `pom.xml` targets Java 21)
 - **Build system**: Maven (`pom.xml` per stage)
 - **Testing**: JUnit 5 (Jupiter) — unit tests for every custom data structure and every
   DocumentStore stage (`HashTableImplTest`, `TrieImplTest`, `BTreeImplTest`, `MinHeapImplTest`,
   `StackImplTest`, `DocumentImplTest`, `DocumentStoreImplTest`, `DocumentPersistenceManagerTest`).
+  Stage 6 has 162 tests. `MemoryTierTest` covers RAM and disk behaviour directly, including a
+  randomized run that compares the store to a simple model after every operation, and
+  `BTreeImplTest` checks every key after every insert across shuffled insertion orders.
 - **Serialization**: Gson, with custom `JsonSerializer`/`JsonDeserializer` implementations for the
   `Document` type (needed because documents can hold either text or binary content plus metadata
   and a word-frequency index, which Gson can't map automatically).
 - **Design patterns used deliberately**:
-  - Command pattern for undo/redo (`Undoable`, `GenericCommand`, `CommandSet`).
+  - Command pattern for undo (`Undoable`, `GenericCommand`, `CommandSet`).
   - Strategy pattern via injected `Comparator`s to decouple ranking logic from the trie's traversal.
   - Two-tier cache/eviction pattern (RAM-resident set + min-heap priority queue + disk fallback),
     conceptually similar to how a database buffer pool or OS virtual memory manager works.
@@ -141,7 +154,7 @@ The project was built incrementally across a semester, with each stage adding a 
 functionality on the previous one's codebase:
 1. **Stage 1** — basic `Document`/`DocumentStore` with simple put/get/delete.
 2. **Stage 2** — introduces a custom `HashTable` as the backing store.
-3. **Stage 3** — adds the undo command stack (single-level undo).
+3. **Stage 3** — adds the undo command stack, including undo by URI.
 4. **Stage 4** — adds the `Trie` search index, keyword/prefix search and ranked results, metadata
    search, and bulk/targeted deletion by keyword/prefix/metadata.
 5. **Stage 5** — adds the `MinHeap`-based LRU tracking and in-memory document/byte limits
@@ -151,6 +164,6 @@ functionality on the previous one's codebase:
    RAM/disk memory management described above.
 
 When summarizing this project (e.g., for a resume), Stage 6 is the complete, representative
-picture: a hand-built search engine and document store with ranked keyword/prefix search,
-metadata filtering, multi-level undo, and automatic two-tier RAM/disk memory management backed
-entirely by custom data structures (trie, B-tree, min-heap, stack, hash table).
+picture: a search engine and document store with ranked keyword/prefix search, metadata filtering,
+multi-level undo, and automatic two-tier RAM/disk memory management, built on custom data
+structures (trie, B-tree, min-heap, stack).

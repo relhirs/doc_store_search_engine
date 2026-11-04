@@ -10,7 +10,6 @@ import edu.yu.cs.com1320.project.impl.TrieImpl;
 
 import edu.yu.cs.com1320.project.MinHeap;
 import edu.yu.cs.com1320.project.Stack;
-import edu.yu.cs.com1320.project.Trie;
 import edu.yu.cs.com1320.project.undo.CommandSet;
 import edu.yu.cs.com1320.project.undo.GenericCommand;
 import edu.yu.cs.com1320.project.undo.Undoable;
@@ -42,7 +41,7 @@ public class DocumentStoreImpl implements DocumentStore {
     private BTree<URI, Document> storage;
     private PersistenceManager<URI, Document> pm;
     private Stack<Undoable> commandStack;
-    private Trie<URI> trie; 
+    private TrieImpl<URI> trie; 
     private MinHeap<DocumentURIWrapper> minHeap;
     private Set<URI> docsInRam;
     private Set<URI> allURIs; 
@@ -660,6 +659,82 @@ public class DocumentStoreImpl implements DocumentStore {
         List<URI> uris = new ArrayList<>(this.allURIs);
         Collections.sort(uris);
         return uris;
+    }
+
+    // Read-only views for tools that display the store. None of these count as using a document,
+    // and none of them read from disk.
+
+    /**
+     * @return the URIs of the documents in RAM, least recently used first. Ties go to the lower URI.
+     */
+    public List<URI> urisInRamByLastUse() {
+        List<URI> uris = new ArrayList<>(this.docsInRam);
+        uris.sort(Comparator.comparingLong((URI uri) -> this.storage.get(uri).getLastUseTime()).thenComparing(Comparator.naturalOrder()));
+        return uris;
+    }
+
+    /**
+     * @return the URIs of the documents on disk, in URI order
+     */
+    public List<URI> urisOnDisk() {
+        List<URI> uris = this.keySet();
+        uris.removeAll(this.docsInRam);
+        return uris;
+    }
+
+    /**
+     * @return the document, or null if it isn't in RAM
+     */
+    public Document documentInRam(URI uri) {
+        return this.docsInRam.contains(uri) ? this.storage.get(uri) : null;
+    }
+
+    /**
+     * @return the document the heap will evict next, or null if RAM is empty. Documents that came back
+     * from one search share a last use time, so only the heap knows which of them goes first.
+     */
+    public URI nextToEvict() {
+        DocumentURIWrapper next = this.minHeap.peek();
+        return next == null ? null : next.uri;
+    }
+
+    public int documentCountInRam() {
+        return this.currentDocCount;
+    }
+
+    public int documentBytesInRam() {
+        return this.currentDocBytes;
+    }
+
+    /**
+     * @return the characters that can follow this prefix in the word index, in order
+     */
+    public List<Character> nextIndexCharacters(String prefix) {
+        return this.trie.nextCharacters(prefix);
+    }
+
+    /**
+     * @return how many documents contain exactly this word
+     */
+    public int documentsWithWord(String word) {
+        return this.trie.get(word).size();
+    }
+
+    /**
+     * @return the undo stack, most recent command first
+     */
+    public List<Undoable> undoHistory() {
+        List<Undoable> history = new ArrayList<>();
+        Stack<Undoable> held = new StackImpl<>();
+        while (this.commandStack.size() > 0) {
+            Undoable command = this.commandStack.pop();
+            history.add(command);
+            held.push(command);
+        }
+        while (held.size() > 0) {
+            this.commandStack.push(held.pop());
+        }
+        return history;
     }
 
 }

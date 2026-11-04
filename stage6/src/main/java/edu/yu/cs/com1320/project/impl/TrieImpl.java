@@ -220,6 +220,23 @@ public class TrieImpl<Value> implements Trie<Value> {
         return sortedByPrefix;    
     }
 
+    /**
+     * @return the characters that continue this prefix, in order. Empty if no word starts with it.
+     */
+    public List<Character> nextCharacters(String prefix) {
+        List<Character> next = new ArrayList<>();
+        Node<Value> node = prefix == null ? null : get(this.root, prefix, 0);
+        if (node == null) {
+            return next;
+        }
+        for (int i = 0; i < alphabetSize; i++) {
+            if (node.links[i] != null) {
+                next.add((char) i);
+            }
+        }
+        return next;
+    }
+
     private void collectAllInSubtree(Node<Value> x, Set<Value> allValues) {
         if (x == null) return;
 

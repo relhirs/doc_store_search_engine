@@ -155,11 +155,15 @@ async function input() {
   assert.match(await strip(page), /store\.searchByPrefix\("traversal"\)/, 'fast typing lands on the latest text');
 
   await page.getByRole('button', { name: 'Add a document' }).click();
-  await page.getByLabel('Name').fill('Bad Name');
+  await page.getByLabel('Name').fill('日本語');
+  assert.match(await page.locator('.add__hint').innerText(), /at least one letter/);
   await page.locator('.add textarea').fill('some tree words');
   await page.getByRole('button', { name: 'Add document' }).click();
   await page.waitForTimeout(200);
-  assert.match(await page.locator('.add__error').innerText(), /lowercase letters/);
+  assert.match(await page.locator('.add__error').innerText(), /needs a name/);
+  await page.getByLabel('Name').fill('My Notes_v2.txt ');
+  assert.equal(await page.locator('.add__error').count(), 0, 'editing clears the error');
+  assert.match(await page.locator('.add__hint').innerText(), /Saved as my-notes-v2-txt$/);
   await page.locator('.add textarea').fill('a'.repeat(20_000));
   await page.getByRole('button', { name: 'Add document' }).click();
   await page.waitForTimeout(200);
@@ -169,10 +173,9 @@ async function input() {
   await page.waitForTimeout(200);
   assert.match(await page.locator('.add__error').innerText(), /up to 20000 characters/);
   await page.locator('.add textarea').fill('some tree words');
-  await page.getByLabel('Name').fill('my-notes');
   await page.getByRole('button', { name: 'Add document' }).click();
   await page.waitForTimeout(350);
-  assert.equal(await page.locator('.spine', { hasText: 'my-notes' }).count(), 1);
+  assert.equal(await page.locator('.spine', { hasText: 'my-notes-v2-txt' }).count(), 1);
   await page.context().close();
   pass('awkward input is handled');
 }

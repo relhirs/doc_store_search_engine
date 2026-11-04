@@ -162,6 +162,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--ink); outline: n
 .add { display: grid; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .add label { display: grid; gap: 3px; color: var(--graphite); font-size: 14px; }
 .add__error { color: var(--ink); font-weight: 600; }
+.add__hint { margin-top: -6px; color: var(--graphite); font-size: 14px; }
 
 .engine { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .engine__toggle { display: none; }

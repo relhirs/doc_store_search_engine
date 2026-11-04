@@ -1,0 +1,16 @@
+import { writeFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
+const t0 = performance.now();
+const m = await import(process.argv[2]);
+const t1 = performance.now();
+const trace = m.runScript();
+const t2 = performance.now();
+writeFileSync(process.argv[3], trace);
+console.log(`import ${(t1-t0).toFixed(1)}ms, full script ${(t2-t1).toFixed(1)}ms, trace ${trace.length} chars`);
+m.reset();
+for (let i = 0; i < 24; i++) m.putText(`http://x/d${i}`, `tree trie doc${i}`);
+m.setMaxDocs(16);
+console.log('exported calls ok:', m.searchPrefix('tr').split(' ').length, 'hits');
+m.undo();
+console.log('after undo:', m.searchPrefix('tr').split(' ').length, 'hits');
+writeFileSync(process.argv[3].replace('.txt', '-probe.txt'), m.runUriProbe());

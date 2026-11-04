@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>spike</title><pre id="out">pending</pre>
+<script type="module">
+import { measure } from './core.js';
+const out = document.getElementById('out');
+const main = await measure().catch(e => ({ error: String(e) }));
+const worker = await new Promise(res => {
+  const w = new Worker('./worker.js', { type: 'module' });
+  w.onmessage = e => res(e.data);
+  w.onerror = e => res({ error: e.message });
+});
+const body = JSON.stringify({ main, worker, ua: navigator.userAgent });
+out.textContent = body;
+await fetch('/result', { method: 'POST', body });
+</script>

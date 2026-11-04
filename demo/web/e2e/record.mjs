@@ -43,19 +43,31 @@ async function press(locator) {
   await locator.click();
 }
 
-await pause(1300);
-await press(page.getByRole('button', { name: 'Take the four-step tour' }));
-await pause(500);
+// Long enough to read a card, because people watching can't pause a GIF
+const next = async (reading = 2600) => {
+  await pause(reading);
+  await press(page.locator('.spotlight__actions button').last());
+  await pause(450);
+};
+
+await pause(1000);
+await press(page.getByRole('button', { name: 'Take the tour' }));
+await next(3000);
+await next(3000);
 
 await glide(page.getByRole('searchbox'));
 await page.getByRole('searchbox').pressSequentially('tr', { delay: 260 });
 await page.waitForSelector('.result');
-await pause(1500);
+await next(1200);
+await next();
+await next();
+await next(2000);
 
 await press(page.getByRole('button', { name: 'Add filter' }));
 await page.getByLabel('Choose a filter').selectOption('topic: trees');
-await pause(1500);
+await next(1200);
 
+await pause(1600);
 const handle = await page.locator('.handle').boundingBox();
 await page.mouse.move(handle.x + 14, handle.y + 60, { steps: 18 });
 await pause(250);
@@ -65,22 +77,27 @@ for (let i = 1; i <= 40; i++) {
   await pause(45);
 }
 await page.mouse.up();
-await pause(1300);
+await pause(1000);
 await page.screenshot({ path: join(OUTPUT, 'walkthrough.png') });
+await next(300);
+await next();
 
-const onDisk = page.locator('.spine[aria-label*="on disk"]').first();
-await glide(onDisk);
-await onDisk.evaluate(spine => spine.click());
-await pause(1300);
+await pause(1600);
 await press(page.getByRole('button', { name: 'Open and bring to RAM' }));
-// The button under the pointer becomes Delete, so move away from it
-await page.mouse.move(size.width - 40, 300, { steps: 12 });
-await pause(1400);
+await next(1200);
 
+await pause(1000);
 await press(page.getByRole('button', { name: /^Delete all/ }));
-await pause(1300);
+await next(1000);
+
+await pause(1000);
 await press(page.locator('.strip button'));
+await next(1200);
+
 await pause(1800);
+await press(page.locator('.history .chip').last());
+await next(1200);
+await pause(2200);
 
 await page.screencast.stop();
 await browser.close();

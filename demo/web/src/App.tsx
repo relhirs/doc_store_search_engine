@@ -2,6 +2,7 @@ import { ApiStrip } from './components/ApiStrip';
 import { EnginePanels } from './components/EnginePanels';
 import { Header } from './components/Header';
 import { SearchPanel } from './components/SearchPanel';
+import { TourOverlay } from './components/TourOverlay';
 import { Wall } from './components/Wall';
 import { REPOSITORY } from './components/sources';
 import { useDemo } from './demo/useDemo';
@@ -26,14 +27,17 @@ export function App() {
   }
 
   return (
-    <div className="app">
-      <Header demo={demo} />
-      <main className="desk">
-        <SearchPanel demo={demo} />
-        <EnginePanels demo={demo} />
-      </main>
-      <Wall demo={demo} />
-      <ApiStrip demo={demo} />
-    </div>
+    <>
+      <div className={demo.tour ? 'app app--touring' : 'app'}>
+        <Header demo={demo} />
+        <main className="desk">
+          <SearchPanel demo={demo} />
+          <EnginePanels demo={demo} />
+        </main>
+        <Wall demo={demo} />
+        <ApiStrip demo={demo} />
+      </div>
+      <TourOverlay demo={demo} />
+    </>
   );
 }

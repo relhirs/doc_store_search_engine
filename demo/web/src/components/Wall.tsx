@@ -202,7 +202,7 @@ export function Wall({ demo }: { demo: Demo }) {
 
   const handleX = dragX ?? layout?.divider ?? 0;
   return (
-    <section className="wall" aria-label="Memory">
+    <section className="wall" aria-label="Memory" data-tour="wall">
       <div className="wall__labels">
         <p className="wall__ram">
           <strong>RAM</strong> {state ? `${state.ramCount} of ${state.maxDocuments} slots, ${formatBytes(state.ramBytes)}` : ''}

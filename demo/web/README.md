@@ -23,6 +23,7 @@ The page for the live demo. It runs the engine from `demo/engine` in a Web Worke
 - `src/demo/useDemo.ts` holds the page's state and every call to the engine.
 - `src/engine/client.ts` keeps calls in order. Its `latest` method drops stale searches and limits, so fast input skips to the newest value.
 - `src/components/Wall.tsx` places every tile from engine state. RAM runs from most recent to the next to leave, using `nextToEvict` and not list order.
+- `src/demo/tour.ts` lists the tour's stops. `src/components/TourOverlay.tsx` draws the dim, the box and the arrow, and `src/demo/placement.ts` works out where the card goes. A stop's `target` matches a `data-tour` attribute on the feature it highlights.
 - `src/corpus.ts` holds the 24 articles. Search is case sensitive and only indexes ASCII letters and digits, so keep the text to those.
 
 Searching counts as a use, so anything that only needs to look at the index calls `indexView`, which changes nothing.

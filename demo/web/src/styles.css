@@ -120,10 +120,35 @@ input:focus, select:focus, textarea:focus { border-color: var(--ink); outline: n
 .chip { padding: 2px 9px; border-color: var(--rule); font-size: 14px; }
 
 .tour { margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid var(--ram); background: #F4F7F9; }
-.tour h2 { margin-bottom: 3px; font-size: 15px; font-weight: 600; }
 .tour p { max-width: 62ch; }
 .tour__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 9px; }
 .tour__actions button { white-space: nowrap; }
+
+[data-tour] { scroll-margin-top: 12px; }
+.spotlight__hole { position: fixed; z-index: 400; top: 0; left: 0; border-radius: 2px; outline: 2px solid var(--sheet); box-shadow: 0 0 0 200vmax rgba(22, 32, 43, 0.55); pointer-events: none; }
+.spotlight__hole--none { outline: 0; }
+.spotlight__block { position: fixed; z-index: 401; }
+.spotlight__arrow { position: fixed; z-index: 402; top: 0; left: 0; width: 100%; height: 100%; color: var(--sheet); pointer-events: none; }
+.spotlight__card {
+  position: fixed;
+  z-index: 403;
+  top: 0;
+  left: 0;
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 12px 16px 14px;
+  background: #F4F7F9;
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+}
+.spotlight__card:focus { outline: none; }
+.spotlight__card h2 { margin-bottom: 4px; font-size: 17px; font-weight: 600; }
+.spotlight__count { color: var(--graphite); font-size: 14px; font-variant-numeric: tabular-nums; }
+.spotlight__task { margin-top: 8px; font-weight: 600; }
+.spotlight__actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+.spotlight__actions button { white-space: nowrap; }
+.spotlight__actions button:first-child { margin-right: auto; }
 
 .empty { margin-top: 18px; color: var(--graphite); max-width: 56ch; }
 
@@ -305,6 +330,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--ink); outline: n
   :root { --gutter: 16px; }
 
   .app { height: auto; min-height: 0; padding-bottom: 96px; }
+  /* The page needs room to scroll a feature above the tour's card */
+  .app--touring { padding-bottom: 70vh; }
   .masthead { flex-wrap: wrap; gap: 0 14px; }
   .masthead nav { margin-left: 0; width: 100%; }
   .desk { display: contents; }

@@ -30,27 +30,138 @@ const tiers = page => page.locator('.spine').evaluateAll(spines => {
   return { ram: labels.filter(label => label.includes('in RAM')).length, disk: labels.filter(label => label.includes('on disk')).length };
 });
 const strip = page => page.locator('.strip__line').innerText();
-const tourStep = page => page.locator('.tour h2').innerText();
 const clickSpine = (page, name) => page.locator('.spine', { hasText: name }).evaluate(spine => spine.click());
 const pass = name => console.log(`ok: ${name}`);
 
-async function fullTour() {
+const STOPS = [
+  ['Welcome', null],
+  ['The memory wall', 'wall'],
+  ['Search', 'search', /store\.searchByPrefix\("tr"\)/],
+  ['The word index', 'panel'],
+  ['Ranked results', 'results'],
+  ['The real call', 'strip'],
+  ['Filters', 'filters', /store\.searchByPrefixAndMetadata\("tr", Map\.of\("topic", "trees"\)\)/],
+  ['The memory limit', 'wall', /store\.setMaxDocumentCount\(8\)/],
+  ['Eviction order', 'panel'],
+  ['A document on disk', 'panel', /1 back in RAM/],
+  ['Bulk delete', 'bulk', /store\.deleteAll/],
+  // History's two deletes follow straight after the undo, so they're what the strip shows
+  ['Undo', 'undo', /store\.delete\(uri/],
+  ['History', 'panel', /store\.undo\(uri/],
+  ["That's the tour", null],
+];
+const card = page => page.locator('.spotlight__card');
+const main = page => page.locator('.spotlight__actions button').last();
+const stopTitle = page => card(page).locator('h2').innerText();
+const documents = async page => { const { ram, disk } = await tiers(page); return ram + disk; };
+
+async function press(page) {
+  await page.waitForTimeout(420);
+  await main(page).click();
+  await page.waitForTimeout(350);
+}
+
+// Everything a visitor needs from one stop: the box on the feature, the card clear of it, the arrow between them
+async function checkStop(page, target) {
+  const layout = await page.evaluate(name => {
+    const rect = element => {
+      const { left, top, right, bottom } = element.getBoundingClientRect();
+      return { left, top, right, bottom };
+    };
+    const line = document.querySelector('.spotlight__arrow line');
+    return {
+      hole: rect(document.querySelector('.spotlight__hole')),
+      card: rect(document.querySelector('.spotlight__card')),
+      target: name ? rect(document.querySelector(`[data-tour="${name}"]`)) : null,
+      arrow: line ? ['x1', 'y1', 'x2', 'y2'].map(key => Number(line.getAttribute(key))) : null,
+      width: innerWidth,
+      height: innerHeight,
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  }, target);
+  const { hole, card: box, arrow, width, height } = layout;
+  const label = `at ${await stopTitle(page)}`;
+  assert.equal(layout.sideways, 0, `no sideways scroll ${label}`);
+  assert.ok(box.left >= 0 && box.top >= 0 && box.right <= width && box.bottom <= height, `the card is on screen ${label}`);
+  if (!target) {
+    assert.equal(hole.right - hole.left, 0, `nothing is highlighted ${label}`);
+    assert.equal(arrow, null, `no arrow ${label}`);
+    return;
+  }
+  const inside = (point, low, high) => point >= low - 1 && point <= high + 1;
+  assert.ok(hole.right > hole.left && hole.bottom > hole.top, `there is a box ${label}`);
+  assert.ok(layout.target.left < hole.right && layout.target.right > hole.left && layout.target.top < hole.bottom && layout.target.bottom > hole.top, `the box is on the feature ${label}`);
+  assert.ok(arrow, `there is an arrow ${label}`);
+  const [, , x, y] = arrow;
+  assert.ok(inside(x, hole.left, hole.right) && inside(y, hole.top, hole.bottom), `the arrow ends on the box ${label}`);
+  const overlaps = box.left < hole.right && box.right > hole.left && box.top < hole.bottom && box.bottom > hole.top;
+  const tooBig = hole.bottom - hole.top + box.bottom - box.top + 52 > height;
+  assert.ok(!overlaps || tooBig, `the card leaves the box clear ${label}`);
+}
+
+async function allStops(options, name) {
+  const page = await open(options);
+  await page.getByRole('button', { name: 'Take the tour' }).click();
+  for (const [i, [title, target, expected]] of STOPS.entries()) {
+    await page.waitForTimeout(320);
+    assert.equal(await stopTitle(page), title);
+    assert.match(await card(page).innerText(), new RegExp(`${i + 1} of ${STOPS.length}`));
+    await checkStop(page, target);
+    if (i === STOPS.length - 1) {
+      break;
+    }
+    assert.equal(await main(page).innerText(), expected ? 'Do it for me' : 'Next');
+    assert.equal(await page.getByRole('button', { name: 'End tour' }).count(), 1);
+    await press(page);
+    if (expected) {
+      assert.match(await strip(page), expected, `${title} made its real call`);
+    }
+  }
+  await page.getByRole('button', { name: 'Close' }).click();
+  assert.equal(await card(page).count(), 0);
+  await page.getByRole('searchbox').fill('binary');
+  await page.waitForTimeout(400);
+  const shown = await page.locator('.result').count();
+  assert.match(await strip(page), new RegExp(`\\b${shown} results?\\b`), 'search works after the tour');
+  await page.context().close();
+  pass(`every stop of the tour works with Next alone, ${name}`);
+}
+
+async function tourByHand() {
   const page = await open();
-  assert.deepEqual(await tiers(page), { ram: 16, disk: 8 });
-  await page.getByRole('button', { name: 'Take the four-step tour' }).click();
+  await page.getByRole('button', { name: 'Take the tour' }).click();
+  await press(page);
+  await press(page);
+
+  // Dimmed parts can't be reached, by pointer or by keyboard
+  const reset = await page.getByRole('button', { name: 'Reset' }).boundingBox();
+  await page.mouse.click(reset.x + 5, reset.y + 5);
+  await page.waitForTimeout(200);
+  assert.equal(await stopTitle(page), 'Search');
+  assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y).className, [reset.x + 5, reset.y + 5]), 'spotlight__block');
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab');
+    const reachable = await page.evaluate(() => {
+      const active = document.activeElement;
+      return active === document.body || !!active.closest('.spotlight__card, [data-tour="search"]');
+    });
+    assert.ok(reachable, 'Tab stays on the card and the feature');
+  }
 
   await page.getByRole('searchbox').fill('tr');
-  await page.waitForSelector('.result');
-  await page.waitForTimeout(300);
-  assert.match(await strip(page), /store\.searchByPrefix\("tr"\)/);
-  assert.match(await strip(page), /16 results/);
-  assert.match(await strip(page), /(under 1|\d+) ms/);
-  assert.match(await tourStep(page), /Step 2/);
+  await page.waitForTimeout(400);
+  assert.equal(await main(page).innerText(), 'Next');
+  assert.match(await card(page).innerText(), /Done/);
+  await press(page);
+  await press(page);
+  await press(page);
+  await press(page);
 
   await page.getByRole('button', { name: 'Add filter' }).click();
   await page.getByLabel('Choose a filter').selectOption('topic: trees');
   await page.waitForTimeout(450);
-  assert.match(await tourStep(page), /Step 3/);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
 
   const handle = await page.locator('.handle').boundingBox();
   await page.mouse.move(handle.x + 14, handle.y + 60);
@@ -62,45 +173,93 @@ async function fullTour() {
   await page.mouse.up();
   await page.waitForTimeout(700);
   assert.equal((await tiers(page)).ram, 8);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
+  await press(page);
 
-  await page.locator('.spine[aria-label*="on disk"]').first().evaluate(spine => spine.click());
-  await page.waitForTimeout(200);
   assert.match(await page.locator('.json').innerText(), /"uri": "http:\/\/demo\.local\//);
   await page.getByRole('button', { name: 'Open and bring to RAM' }).click();
   await page.waitForTimeout(600);
   assert.match(await strip(page), /1 moved to disk, 1 back in RAM/);
-  assert.match(await tourStep(page), /Step 4/);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
 
   await page.getByRole('button', { name: /^Delete all/ }).click();
   await page.waitForTimeout(400);
-  assert.equal((await tiers(page)).ram + (await tiers(page)).disk, 16);
+  assert.equal(await documents(page), 16);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
+
   await page.locator('.strip button').click();
   await page.waitForTimeout(500);
-  assert.equal((await tiers(page)).ram + (await tiers(page)).disk, 24);
+  assert.equal(await documents(page), 24);
   assert.equal(await page.locator('.result').count(), 8, 'rows come back with their documents');
   assert.match(await strip(page), /8 restored/);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
 
-  await clickSpine(page, 'hash-tables');
-  await page.waitForTimeout(150);
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  assert.equal(await stopTitle(page), 'History');
   await page.waitForTimeout(300);
-  await clickSpine(page, 'stacks');
-  await page.waitForTimeout(150);
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await page.waitForTimeout(300);
-  await page.getByRole('tab', { name: 'History' }).click();
-  await page.getByRole('button', { name: 'Undo hash-tables' }).click();
+  assert.equal(await documents(page), 22, 'the tour deleted two documents');
+  const undos = page.locator('.history .chip');
+  const older = (await undos.last().innerText()).replace('Undo ', '');
+  const newer = (await undos.first().innerText()).replace('Undo ', '');
+  assert.notEqual(older, newer);
+  await undos.last().click();
   await page.waitForTimeout(400);
-  assert.equal(await page.locator('.spine', { hasText: 'hash-tables' }).count(), 1);
-  assert.equal(await page.locator('.spine', { hasText: 'stacks' }).count(), 0);
-  assert.match(await page.locator('.tour').innerText(), /That's the tour/);
-
-  await page.getByRole('searchbox').fill('binary');
-  await page.waitForTimeout(400);
-  const shown = await page.locator('.result').count();
-  assert.match(await strip(page), new RegExp(`\\b${shown} results?\\b`), 'search still works on the closing card');
+  assert.equal(await page.locator('.spine', { hasText: new RegExp(`^${older}$`) }).count(), 1);
+  assert.equal(await page.locator('.spine', { hasText: new RegExp(`^${newer}$`) }).count(), 0);
+  assert.equal(await main(page).innerText(), 'Next');
+  await press(page);
+  assert.equal(await stopTitle(page), "That's the tour");
   await page.context().close();
-  pass('the full tour runs to its end');
+  pass('every try-it stop works by hand');
+}
+
+async function tourControls() {
+  const page = await open();
+  await page.getByRole('button', { name: 'Take the tour' }).click();
+  for (let i = 0; i < 10; i++) {
+    await press(page);
+  }
+  assert.equal(await stopTitle(page), 'Bulk delete');
+
+  // The second press of a double click must not reach the next stop's button
+  await page.waitForTimeout(420);
+  await main(page).click();
+  await page.waitForTimeout(90);
+  await main(page).click().catch(() => {});
+  await page.waitForTimeout(500);
+  assert.equal(await stopTitle(page), 'Undo');
+  assert.equal(await documents(page), 16, 'one delete and no undo');
+
+  await page.waitForTimeout(420);
+  await main(page).click();
+  await page.waitForTimeout(90);
+  await main(page).click().catch(() => {});
+  await page.waitForTimeout(500);
+  assert.equal(await stopTitle(page), 'History');
+  assert.equal(await documents(page), 22, 'one undo, then the two deletes');
+
+  await page.waitForTimeout(400);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.waitForTimeout(420);
+  assert.equal(await stopTitle(page), 'Undo');
+  await main(page).click();
+  await page.waitForTimeout(420);
+  assert.equal(await stopTitle(page), 'History');
+  assert.equal(await documents(page), 22, "Back doesn't repeat the deletes");
+
+  await page.keyboard.press('Escape');
+  assert.equal(await card(page).count(), 0, 'Esc ends the tour');
+  assert.equal(await page.evaluate(() => document.querySelectorAll('[inert]').length), 0, 'the page opens up again');
+
+  await page.getByRole('button', { name: 'Tour', exact: true }).click();
+  await page.waitForTimeout(900);
+  assert.equal(await stopTitle(page), 'Welcome');
+  assert.deepEqual(await tiers(page), { ram: 16, disk: 8 }, 'the tour starts from a clean store');
+  await page.context().close();
+  pass('double presses, Back, Esc and restarting all work');
 }
 
 async function wall() {
@@ -207,6 +366,13 @@ async function reducedMotion() {
   await page.waitForTimeout(60);
   const colors = await page.locator('.spine[aria-label*="on disk"]').evaluateAll(spines => [...new Set(spines.map(spine => getComputedStyle(spine).backgroundColor))]);
   assert.deepEqual(colors, ['rgb(143, 94, 0)']);
+  await page.getByRole('button', { name: 'Tour', exact: true }).click();
+  await page.waitForTimeout(500);
+  await main(page).click();
+  await page.waitForTimeout(60);
+  const hole = await page.locator('.spotlight__hole').boundingBox();
+  const wall = await page.locator('[data-tour="wall"]').boundingBox();
+  assert.ok(Math.abs(hole.y - (wall.y - 6)) < 2, 'the box reaches the next stop at once');
   await page.context().close();
   pass('reduced motion makes changes instant');
 }
@@ -245,7 +411,10 @@ async function engineFailure() {
 }
 
 try {
-  await fullTour();
+  await allStops({ viewport: { width: 1440, height: 900 } }, 'on a desktop');
+  await allStops({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }, 'on a phone');
+  await tourByHand();
+  await tourControls();
   await wall();
   await input();
   await workerAlwaysAnswers();

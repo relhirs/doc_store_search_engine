@@ -33,7 +33,7 @@ function Filters({ demo }: { demo: Demo }) {
   }, [state, filters]);
 
   return (
-    <div className="filters">
+    <div className="filters" data-tour="filters">
       {filters.map(filter => (
         <button
           key={filter.key}
@@ -147,7 +147,7 @@ export function SearchPanel({ demo }: { demo: Demo }) {
   return (
     <section className="search" aria-label="Search">
       <Tour demo={demo} />
-      <div className="search__bar">
+      <div className="search__bar" data-tour="search">
         <input
           type="search"
           value={query}
@@ -168,11 +168,11 @@ export function SearchPanel({ demo }: { demo: Demo }) {
       <Filters demo={demo} />
       {rows.length > 0 ? (
         <>
-          <div className="results__head">
+          <div className="results__head" data-tour="bulk">
             <span>{plural(rows.length, 'result')}</span>
             <button type="button" className="danger" onClick={() => demo.deleteResults()}>Delete all {rows.length}</button>
           </div>
-          <ol className="results">
+          <ol className="results" data-tour="results">
             <AnimatePresence initial={false}>
               {rows.map(row => <Result key={row.name} row={row} top={top} demo={demo} />)}
             </AnimatePresence>

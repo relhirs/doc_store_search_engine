@@ -3,7 +3,7 @@ import { CORPUS } from '../corpus';
 import { EngineClient } from '../engine/client';
 import type { EngineState, Events, IndexLevel, Response, Row } from '../engine/types';
 import { describeCall } from './format';
-import { TOUR } from './tour';
+import { STOPS } from './tour';
 
 export const SEED_LIMIT = 16;
 const SEARCH_PAUSE_MS = 150;
@@ -25,8 +25,9 @@ export interface LastCall {
 }
 
 export interface TourPosition {
-  step: number;
-  task: number;
+  stop: number;
+  reached: number;
+  done: number[];
 }
 
 const NO_EVENTS: Events = { evicted: [], loaded: [], added: [], deleted: [] };
@@ -76,16 +77,15 @@ export function useDemo() {
   const text = query.trim();
   const filterLines = useMemo(() => filters.map(({ key, value }) => `${key}\t${value}`).join('\n'), [filters]);
 
-  const advanceTour = useCallback((response: Response) => {
+  const startTour = useCallback(() => {
+    setTour({ stop: 0, reached: 0, done: [] });
+    setTourOffered(false);
+  }, []);
+
+  const noteTourTask = useCallback((response: Response) => {
     const position = tourRef.current;
-    if (!position || position.step >= TOUR.length || !TOUR[position.step].tasks[position.task].done(response)) {
-      return;
-    }
-    const step = TOUR[position.step];
-    if (position.task + 1 < step.tasks.length) {
-      setTour({ step: position.step, task: position.task + 1 });
-    } else {
-      setTour({ step: position.step + 1, task: 0 });
+    if (position && !position.done.includes(position.stop) && STOPS[position.stop].task?.done(response)) {
+      setTour({ ...position, done: [...position.done, position.stop] });
     }
   }, []);
 
@@ -104,11 +104,11 @@ export function useDemo() {
         nanos: response.storeNanos ?? null,
         ok: response.ok,
       });
-      advanceTour(response);
+      noteTourTask(response);
     } else if (!response.ok) {
       setLast({ call: 'Not sent to the store', summary: response.error ?? '', nanos: null, ok: false });
     }
-  }, [advanceTour]);
+  }, [noteTourTask]);
 
   const load = useCallback(async () => {
     const engine = client.current!;
@@ -274,7 +274,7 @@ export function useDemo() {
     // A deleted row comes back with its document on undo, with no new search needed
     rows: rows.filter(row => exists(row.name)),
     tab, setTab, engineOpen, setEngineOpen, selected, setSelected, opened, setOpened, storedJson,
-    tour, setTour, tourOffered, setTourOffered,
+    tour, setTour, startTour, tourOffered, setTourOffered,
     reset: load, setLimit, openDocument, selectTile, deleteDocument, deleteResults, addDocument,
     tagDocument: (name: string, key: string, value: string) => run('tagDocument', name, key, value),
     undo: () => run('undoLast'),

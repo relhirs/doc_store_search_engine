@@ -223,7 +223,7 @@ export function EnginePanels({ demo }: { demo: Demo }) {
           </button>
         ))}
       </div>
-      <div className="panel" id="engine-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+      <div className="panel" id="engine-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} data-tour="panel">
         {tab === 'index' && <IndexPanel demo={demo} />}
         {tab === 'storage' && <StoragePanel demo={demo} />}
         {tab === 'eviction' && <EvictionPanel demo={demo} />}

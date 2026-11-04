@@ -2,6 +2,10 @@
 
 A Java search engine and document database, built on its own Trie, B-Tree, and Min-Heap instead of Java's built-in trees and heaps.
 
+**[Try the live demo](https://relhirs.github.io/doc_store_search_engine/).** The real Stage 6 Java is compiled to JavaScript and runs in your browser, so there's no server. Drag the memory limit and watch documents move from RAM to disk.
+
+![The demo running: a search, a topic filter, the memory limit dragged down so documents move to disk, then a bulk delete and an undo](demo/web/public/walkthrough.gif)
+
 ## What it does
 
 - Stores text and binary documents, each identified by a URI

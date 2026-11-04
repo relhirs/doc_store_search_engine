@@ -8,6 +8,7 @@ import edu.yu.cs.com1320.project.stage6.PersistenceManager;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -93,7 +94,7 @@ public class DocumentPersistenceManager implements PersistenceManager<URI, Docum
         File targetFile = getFileFromUri(uri);
         targetFile.getParentFile().mkdirs(); 
 
-        try (FileWriter writer = new FileWriter(targetFile)) {
+        try (FileWriter writer = new FileWriter(targetFile, StandardCharsets.UTF_8)) {
             this.gson.toJson(val, writer);
         }
     }
@@ -109,7 +110,7 @@ public class DocumentPersistenceManager implements PersistenceManager<URI, Docum
             return null; // Return null if the document isn't stored on disk
         }
 
-        try (FileReader reader = new FileReader(targetFile)) {
+        try (FileReader reader = new FileReader(targetFile, StandardCharsets.UTF_8)) {
             return this.gson.fromJson(reader, Document.class);
         }
     }
@@ -131,8 +132,11 @@ public class DocumentPersistenceManager implements PersistenceManager<URI, Docum
         if (uriString.startsWith("http://")) {
             uriString = uriString.substring(7);
         } else if (uriString.startsWith("https://")) {
-            uriString = uriString.substring(8);
+            // Kept in its own folder so http and https versions of a URI never share a file
+            uriString = "https/" + uriString.substring(8);
         }
+        // A ".." segment must not be able to walk out of the base directory
+        uriString = uriString.replace("..", "%2E%2E");
 
         return new File(this.baseDir, uriString + ".json");
     }

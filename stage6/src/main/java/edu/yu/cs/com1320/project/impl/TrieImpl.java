@@ -3,6 +3,7 @@ package edu.yu.cs.com1320.project.impl;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.List;
 
@@ -19,7 +20,7 @@ public class TrieImpl<Value> implements Trie<Value> {
         protected Node[] links;
         
         private Node() {
-            this.values = new HashSet<>();
+            this.values = new LinkedHashSet<>();
             this.links =  new Node[alphabetSize]; 
         }    
         
@@ -33,6 +34,11 @@ public class TrieImpl<Value> implements Trie<Value> {
     public void put(String key, Value val) {
         if (key == null || val == null) {
             return; 
+        }
+        for (int i = 0; i < key.length(); i++) {
+            if (key.charAt(i) >= alphabetSize) {
+                throw new IllegalArgumentException("Key contains a character outside the trie's alphabet");
+            }
         }
         this.root = put(this.root, key, val, 0);     
     }
@@ -64,7 +70,7 @@ public class TrieImpl<Value> implements Trie<Value> {
         }
         
         // 2. Make an independent copy of the data 
-        Set<Value> savedData = new HashSet<>(dataToDelete); 
+        Set<Value> savedData = new LinkedHashSet<>(dataToDelete); 
 
         this.root = deleteAll(this.root, key, 0);
         return savedData; 
@@ -105,10 +111,11 @@ public class TrieImpl<Value> implements Trie<Value> {
             return new HashSet<>();
         }
         Node<Value> prefixNode = get(this.root, prefix, 0);
-        Set<Value> allValues = new HashSet<>();
-        if (prefixNode != null) {
-            collectAllInSubtree(prefixNode, allValues); 
+        Set<Value> allValues = new LinkedHashSet<>();
+        if (prefixNode == null) {
+            return allValues;
         }
+        collectAllInSubtree(prefixNode, allValues); 
         this.root = deleteAllWithPrefix(this.root, prefix, 0);
         return allValues; 
     }
@@ -176,7 +183,7 @@ public class TrieImpl<Value> implements Trie<Value> {
         if (result == null) {
             return new HashSet<>(); 
         }
-        Set<Value> docs = new HashSet<>(result.values);
+        Set<Value> docs = new LinkedHashSet<>(result.values);
         return docs; 
     }
 
@@ -189,6 +196,10 @@ public class TrieImpl<Value> implements Trie<Value> {
         }     
         //proceed to the next node in the chain of nodes that forms the desired key
         char c = key.charAt(d);
+        //a character outside the alphabet can't be in the trie
+        if (c >= alphabetSize) {
+            return null;
+        }
         return this.get(x.links[c], key, d + 1);
     }
 
@@ -201,7 +212,7 @@ public class TrieImpl<Value> implements Trie<Value> {
         if (prefixNode == null) {
             return new ArrayList<>();
         }
-        Set<Value> allValues = new HashSet<>();
+        Set<Value> allValues = new LinkedHashSet<>();
         collectAllInSubtree(prefixNode, allValues);
 
         List<Value> sortedByPrefix = new ArrayList<>(allValues);

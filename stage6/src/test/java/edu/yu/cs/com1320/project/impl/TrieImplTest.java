@@ -183,4 +183,32 @@ public class TrieImplTest {
         assertEquals(1, result.size());
         assertFalse(result.contains("doc2"));
     }
+
+    @Test
+    void lookups_CharacterOutsideAlphabet_FindNothing() {
+        trie.put("hello", "world");
+        assertTrue(trie.get("日本語").isEmpty());
+        assertTrue(trie.getSorted("日本語", String::compareTo).isEmpty());
+        assertTrue(trie.getAllWithPrefixSorted("日本語", String::compareTo).isEmpty());
+        assertTrue(trie.deleteAll("日本語").isEmpty());
+        assertTrue(trie.deleteAllWithPrefix("日本語").isEmpty());
+        assertNull(trie.delete("日本語", "world"));
+        assertEquals(1, trie.get("hello").size());
+    }
+
+    @Test
+    void put_CharacterOutsideAlphabet_IsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> trie.put("日本語", "world"));
+    }
+
+    @Test
+    void get_ValuesComeBackInInsertionOrder() {
+        List<String> inserted = List.of("zebra", "apple", "mango", "kiwi", "fig", "lime");
+        for (String value : inserted) {
+            trie.put("word", value);
+        }
+        assertEquals(inserted, List.copyOf(trie.get("word")));
+        assertEquals(inserted, trie.getSorted("word", (a, b) -> 0));
+        assertEquals(inserted, trie.getAllWithPrefixSorted("wo", (a, b) -> 0));
+    }
 }

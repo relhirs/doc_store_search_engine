@@ -8,11 +8,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.api.io.TempDir;
 
 import edu.yu.cs.com1320.project.stage6.DocumentStore.DocumentFormat;
 import edu.yu.cs.com1320.project.stage6.impl.DocumentStoreImpl;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.IOException;
 import java.util.List;
@@ -27,12 +29,15 @@ import java.util.Set;
 public class DocumentStoreImplTest {
     private URI uri;
     private DocumentStoreImpl docStore;
+
+    @TempDir
+    File baseDir;
     
 
     @BeforeEach
     void setUp() {
         this.uri = URI.create("http://site.com");
-        this.docStore = new DocumentStoreImpl();
+        this.docStore = new DocumentStoreImpl(this.baseDir);
     }
 
 private static Stream<Arguments> invalidInputs_Get_Set_Metadata() {
@@ -461,7 +466,7 @@ void test_setMaxDocumentCount() throws IOException {
     InputStream input3 = new ByteArrayInputStream("Test Document3".getBytes());
     docStore.put(input3, uri3, DocumentFormat.TXT);
 
-    assertNotNull(docStore.get(uri), "adding a document that exceeds limit should be thrown out, thereby returning null");
+    assertNotNull(docStore.get(uri), "a document pushed out of RAM should still be readable from disk");
     assertNotNull(docStore.get(uri2));
     assertNotNull(docStore.get(uri3));
 
@@ -483,7 +488,7 @@ void test_setMaxDocumentBytes() throws IOException {
     InputStream input3 = new ByteArrayInputStream("Test Document3".getBytes());
     docStore.put(input3, uri3, DocumentFormat.TXT);
 
-    assertNotNull(docStore.get(uri), "adding a document that exceeds limit should be thrown out, thereby returning null");
+    assertNotNull(docStore.get(uri), "a document pushed out of RAM should still be readable from disk");
     assertNotNull(docStore.get(uri2));
     assertNotNull(docStore.get(uri3));
 

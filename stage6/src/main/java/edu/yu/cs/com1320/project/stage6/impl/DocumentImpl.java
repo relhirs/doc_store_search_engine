@@ -4,6 +4,7 @@ import edu.yu.cs.com1320.project.stage6.Document;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.HashMap;
 
@@ -26,7 +27,7 @@ public class DocumentImpl implements Document {
         this.txt = txt;
         this.metadata = new HashMap<>();
         this.wordMap = new HashMap<>();
-        this.lastUseTime = System.nanoTime();
+        this.lastUseTime = UseClock.now();
         fillWordMap(txt);
     }
 
@@ -40,7 +41,7 @@ public class DocumentImpl implements Document {
         this.binaryData = binaryData;
         this.metadata = new HashMap<>();
         this.wordMap = new HashMap<>();
-        this.lastUseTime = System.nanoTime();
+        this.lastUseTime = UseClock.now();
     }
     
     public DocumentImpl(URI uri, String text, Map<String, Integer> wordCountMap) {
@@ -50,7 +51,7 @@ public class DocumentImpl implements Document {
         this.uri = uri;
         this.txt = text; 
         this.metadata = new HashMap<>();
-        this.lastUseTime = System.nanoTime();
+        this.lastUseTime = UseClock.now();
         
         if (wordCountMap == null) {
             this.wordMap = new HashMap<>();
@@ -132,7 +133,7 @@ public class DocumentImpl implements Document {
         result = 31 * result + (txt != null ? txt.hashCode() : 0);
         result = 31 * result + Arrays.hashCode(binaryData);
         
-        return Math.abs(result);
+        return result & Integer.MAX_VALUE;
     }
 
     @Override
@@ -141,7 +142,9 @@ public class DocumentImpl implements Document {
         if (!(o instanceof DocumentImpl)) return false;
 
         DocumentImpl other = (DocumentImpl) o;
-        return this.uri.equals(other.getKey());
+        return this.uri.equals(other.uri)
+                && Objects.equals(this.txt, other.txt)
+                && Arrays.equals(this.binaryData, other.binaryData);
     }
 
     private void fillWordMap(String text) {

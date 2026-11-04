@@ -2,11 +2,8 @@ package edu.yu.cs.com1320.project.impl;
 
 import edu.yu.cs.com1320.project.BTree;
 import edu.yu.cs.com1320.project.stage6.PersistenceManager;
-import edu.yu.cs.com1320.project.stage6.Document;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+import java.io.UncheckedIOException;
 
 
 
@@ -15,14 +12,12 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
     // Max children per B-tree node = MAX-1 
     private final static int MAX = 4;
     private Node root; // The top of your tree
-    private Node leftMostExternalNode;
     private int height; // Current height of the B-tree
     private int n; // Total number of key-value pairs
     private PersistenceManager<Key, Value> pm;
 
     public BTreeImpl() {
         this.root = new Node(0);
-        this.leftMostExternalNode = this.root;
     }
     
       
@@ -70,14 +65,6 @@ public class BTreeImpl<Key extends Comparable<Key>, Value> implements BTree<Key,
         private void setPrevious(Node previous) {
             this.previous = previous;
         }
-
-        private Node getPrevious() {
-            return this.previous;
-        }
-
-        private Entry[] getEntries() {
-            return Arrays.copyOf(this.entries, this.entryCount);
-        }
     }
 
 
@@ -112,16 +99,16 @@ public void moveToDisk(Key k) throws IOException {
         Entry entry = this.get(this.root, key, this.height);
         if (entry == null) return null;
         if (entry.val != null) return (Value) entry.val;
+        if (pm == null) return null;
 
         try {
             Value val = pm.deserialize(key);
             if (val == null) return null; // The file wasn't on disk
             entry.val = val;
             pm.delete(key);
-            if (val instanceof Document) ((Document) val).setLastUseTime(System.nanoTime());
             return val;
         } catch (IOException e) {
-            return null; // Return null if disk fetch fails
+            throw new UncheckedIOException("Failed to read " + key + " from disk", e);
         }
     }
 
@@ -176,15 +163,14 @@ public Value put(Key key, Value val) {
     if (alreadyThere != null) {
         Value oldValue = (Value) alreadyThere.val;
         // If it was on disk, we MUST fetch and delete that file now
-        if (oldValue == null) {
+        if (pm != null) {
             try {
-                oldValue = pm.deserialize(key);
-                if (oldValue != null) pm.delete(key);
-            } catch (IOException e) { /* File not found is okay */ }
+                if (oldValue == null) oldValue = pm.deserialize(key);
+                pm.delete(key);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to replace " + key + " on disk", e);
+            }
         }
-        
-        // If we were in RAM but also have a ghost file on disk, delete it
-        try { pm.delete(key); } catch (Exception e) {}
 
         alreadyThere.val = val;
         return oldValue;
@@ -219,8 +205,13 @@ private Node put(Node h, Key key, Value val, int height) {
     Entry newEntry = null;
 
     if (height == 0) {
-        // External node: Create the entry. shiftEntries will find the correct sorted index.
+        // External node: Create the entry and find its sorted index
         newEntry = new Entry(key, val, null);
+        for (j = 0; j < h.entryCount; j++) {
+            if (less(key, h.entries[j].key)) {
+                break;
+            }
+        }
     } else {
         // Internal node: Find the branch to descend
         for (j = 0; j < h.entryCount; j++) {
@@ -228,36 +219,28 @@ private Node put(Node h, Key key, Value val, int height) {
                 Node u = put(h.entries[j].child, key, val, height - 1);
                 if (u == null) return null; // No split occurred below
 
-                // Child split! Create the new separator entry
+                // Child split! The new sibling goes directly after the child that split.
+                // Its key can't place it: entries[0].key goes stale as smaller keys arrive.
                 newEntry = new Entry(u.entries[0].key, null, u);
+                j++;
                 break; // Break so we exit the loop and call shiftEntries once
             }
         }
     }
-    return shiftEntries(h, newEntry, height);
+    return shiftEntries(h, newEntry, j, height);
 }
 
-private Node shiftEntries(Node h, Entry newEntry, int height) {
-    if (newEntry == null) return null;
-
-    int j;
-    // 1. Find the correct sorted index 'j' internally
-    for (j = 0; j < h.entryCount; j++) {
-        if (less(newEntry.key, h.entries[j].key)) {
-            break;
-        }
-    }
-
-    // 2. Shift entries to the right to make room for newEntry
+private Node shiftEntries(Node h, Entry newEntry, int j, int height) {
+    // 1. Shift entries to the right to make room for newEntry
     for (int i = h.entryCount; i > j; i--) {
         h.entries[i] = h.entries[i - 1];
     }
 
-    // 3. Insert newEntry and update count
+    // 2. Insert newEntry and update count
     h.entries[j] = newEntry;
     h.entryCount++;
 
-    // 4. Split if node capacity (MAX=4) is reached
+    // 3. Split if node capacity (MAX=4) is reached
     if (h.entryCount < MAX) {
         return null;
     } else {

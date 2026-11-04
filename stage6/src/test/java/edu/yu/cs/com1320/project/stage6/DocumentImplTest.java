@@ -204,4 +204,16 @@ public class DocumentImplTest {
         doc1.setLastUseTime(System.nanoTime());
         assertTrue(doc1.compareTo(doc2) > 0, "Recently used document should be greater than older document");
     }
+
+    @Test
+    void Testequals_Agrees_With_hashCode() {
+        URI sharedUri = URI.create("http://www.yu.edu/shared");
+        DocumentImpl original = new DocumentImpl(sharedUri, "Sample Text");
+        DocumentImpl sameContent = new DocumentImpl(sharedUri, "Sample Text");
+        DocumentImpl newContent = new DocumentImpl(sharedUri, "Different Text");
+
+        assertEquals(original, sameContent);
+        assertEquals(original.hashCode(), sameContent.hashCode());
+        assertNotEquals(original, newContent, "Documents with different content must not be equal");
+    }
 }

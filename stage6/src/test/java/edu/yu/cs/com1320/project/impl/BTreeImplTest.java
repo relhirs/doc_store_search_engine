@@ -4,8 +4,13 @@ import edu.yu.cs.com1320.project.stage6.PersistenceManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class BTreeImplTest {
@@ -96,5 +101,57 @@ public class BTreeImplTest {
         bTree.put(1, "Value1");
         bTree.put(1, null);
         assertNull(bTree.get(1), "Putting a null value should effectively delete the entry.");
+    }
+
+    @Test
+    public void testDescendingInserts() {
+        for (int i = 100; i >= 1; i--) {
+            bTree.put(i, "Val" + i);
+        }
+
+        for (int i = 1; i <= 100; i++) {
+            assertEquals("Val" + i, bTree.get(i), "Should retrieve value " + i + " after descending inserts.");
+        }
+    }
+
+    @Test
+    public void testShuffledInsertsKeepEveryKeyAfterEveryPut() {
+        List<Integer> keys = new ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            keys.add(i);
+        }
+        Random random = new Random(1320);
+        for (int run = 0; run < 200; run++) {
+            Collections.shuffle(keys, random);
+            BTreeImpl<Integer, String> tree = new BTreeImpl<>();
+            tree.setPersistenceManager(dummyPM);
+            for (int i = 0; i < keys.size(); i++) {
+                tree.put(keys.get(i), "Val" + keys.get(i));
+                for (int j = 0; j <= i; j++) {
+                    assertEquals("Val" + keys.get(j), tree.get(keys.get(j)), "Run " + run + " lost key " + keys.get(j));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDeletedKeyWithoutPersistenceManager() {
+        BTreeImpl<Integer, String> tree = new BTreeImpl<>();
+        tree.put(1, "Value1");
+        tree.put(1, null);
+        assertNull(tree.get(1), "A deleted key should read as null even with no persistence manager.");
+    }
+
+    @Test
+    public void testDiskReadFailureIsNotReportedAsMissing() throws Exception {
+        bTree.put(1, "Value1");
+        bTree.moveToDisk(1);
+        bTree.setPersistenceManager(new DummyPM() {
+            @Override
+            public String deserialize(Integer key) throws IOException {
+                throw new IOException("disk failed");
+            }
+        });
+        assertThrows(UncheckedIOException.class, () -> bTree.get(1), "A failed read must not look like a missing key.");
     }
 }

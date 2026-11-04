@@ -94,4 +94,34 @@ public class DocumentPersistenceManagerTest {
         boolean deleted = pm.delete(uri);
         assertFalse(deleted, "Deleting a non-existent file should safely return false.");
     }
+
+    @Test
+    public void testHttpAndHttpsDocsDoNotShareAFile() throws Exception {
+        URI http = new URI("http://www.yu.edu/same/path");
+        URI https = new URI("https://www.yu.edu/same/path");
+        pm.serialize(http, new DocumentImpl(http, "plain", null));
+        pm.serialize(https, new DocumentImpl(https, "secure", null));
+
+        assertEquals("plain", pm.deserialize(http).getDocumentTxt());
+        assertEquals("secure", pm.deserialize(https).getDocumentTxt());
+    }
+
+    @Test
+    public void testParentSegmentsStayInsideBaseDir() throws Exception {
+        URI uri = new URI("http://www.yu.edu/../../../escaped");
+        pm.serialize(uri, new DocumentImpl(uri, "contained", null));
+
+        assertFalse(new File(baseDir.getParentFile().getParentFile(), "escaped.json").exists(), "File must not leave the base directory.");
+        assertEquals("contained", pm.deserialize(uri).getDocumentTxt());
+        assertTrue(pm.delete(uri));
+    }
+
+    @Test
+    public void testNonAsciiTextSurvivesDisk() throws Exception {
+        URI uri = new URI("http://www.yu.edu/accents");
+        String text = "caf\u00e9 \u65e5\u672c\u8a9e";
+        pm.serialize(uri, new DocumentImpl(uri, text, null));
+
+        assertEquals(text, pm.deserialize(uri).getDocumentTxt());
+    }
 }

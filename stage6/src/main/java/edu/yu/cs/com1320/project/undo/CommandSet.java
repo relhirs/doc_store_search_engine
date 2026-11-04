@@ -7,7 +7,7 @@ public class CommandSet<Target> extends AbstractSet<GenericCommand<Target>> impl
     private HashSet<GenericCommand<Target>> genericCommands;
 
     public CommandSet(){
-        this.genericCommands = new HashSet<GenericCommand<Target>>();
+        this.genericCommands = new LinkedHashSet<GenericCommand<Target>>();
     }
 
     /**

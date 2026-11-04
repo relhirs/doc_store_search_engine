@@ -18,20 +18,25 @@ import edu.yu.cs.com1320.project.BTree;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 
 
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 public class DocumentStoreImpl implements DocumentStore {
     private BTree<URI, Document> storage;
@@ -102,19 +107,29 @@ public class DocumentStoreImpl implements DocumentStore {
         if (doc == null) {
             throw new IllegalArgumentException("No document stored at that URI");
         }
-        String oldValue = doc.setMetadataValue(key, value); 
-        doc.setLastUseTime(System.nanoTime());
-        minHeap.reHeapify(new DocumentURIWrapper(uri)); 
+        String oldValue = applyMetadata(doc, key, value);
 
-		Consumer<URI> undoLogic = (URI targetUri) -> {
-			Document d = this.get(targetUri);
-            d.setMetadataValue(key, oldValue); 
-            d.setLastUseTime(System.nanoTime());
-            minHeap.reHeapify(new DocumentURIWrapper(uri)); 
-        };
+		Consumer<URI> undoLogic = (URI targetUri) -> applyMetadata(this.get(targetUri), key, oldValue);
         
         this.commandStack.push(new GenericCommand<URI>(uri, undoLogic)); 
         return oldValue;  
+    }
+
+    private String applyMetadata(Document doc, String key, String value) {
+        URI uri = doc.getKey();
+        String oldValue = doc.setMetadataValue(key, value);
+        if (docsInRam.contains(uri)) {
+            doc.setLastUseTime(UseClock.now());
+            minHeap.reHeapify(new DocumentURIWrapper(uri));
+        } else {
+            // The doc is bigger than the byte limit, so it only lives on disk
+            try {
+                this.pm.serialize(uri, doc);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to save metadata for " + uri, e);
+            }
+        }
+        return oldValue;
     }
 
     @Override
@@ -134,7 +149,7 @@ public class DocumentStoreImpl implements DocumentStore {
         if (uri == null || uri.toString().isBlank() || format == null) {
             throw new IllegalArgumentException("URI cannot be null or empty. Format cannot be null");
         }
-        Document existingDoc = this.storage.get(uri);
+        Document existingDoc = peek(uri);
         if (input == null) {
             if (existingDoc != null) {
                 removeFromSystem(existingDoc);
@@ -156,13 +171,14 @@ public class DocumentStoreImpl implements DocumentStore {
         addToSystem(newDoc);
         this.allURIs.add(uri);
         enforceLimits();    
-        undoLogicHelper(newDoc, existingDoc, uri); 
+        undoLogicHelper(existingDoc, uri); 
         return (existingDoc != null) ? existingDoc.hashCode() : 0;          
     }
 
-     private void undoLogicHelper(Document newDoc, Document oldDoc, URI uri) {
+     private void undoLogicHelper(Document oldDoc, URI uri) {
          Consumer<URI> undoLogic = (URI targetUri) -> {
-             removeFromSystem(newDoc);
+             // Look the doc up: a trip to disk and back replaces the object that was put
+             removeFromSystem(peek(targetUri));
             this.storage.put(targetUri, oldDoc);
                 if (oldDoc != null) {
                     addToSystem(oldDoc);
@@ -185,29 +201,6 @@ public class DocumentStoreImpl implements DocumentStore {
         this.commandStack.push(new GenericCommand<URI>(uri, undoLogic));
     }
 
-private void removeFromStack(URI uri) {
-    Stack<Undoable> tempStack = new StackImpl<>(); 
-    while (this.commandStack.size() > 0) {
-        Undoable cmd = commandStack.pop();
-
-        if (cmd instanceof GenericCommand) {
-            if (!((GenericCommand<URI>) cmd).getTarget().equals(uri)) {
-                tempStack.push(cmd); 
-            }
-        } else if (cmd instanceof CommandSet) {
-            CommandSet<URI> set = (CommandSet<URI>) cmd; 
-            set.removeIf(command -> command.getTarget().equals(uri));
-            if (set.size() > 0) {
-                tempStack.push(cmd);
-            }
-        }
-    }
-
-        while (tempStack.size() > 0) {
-            this.commandStack.push(tempStack.pop());
-        }
-}
-
     private void enforceLimits() {
         while (maxDocCount != -1 && currentDocCount > maxDocCount ||  maxDocBytes != -1 && currentDocBytes > maxDocBytes) {
 			DocumentURIWrapper removedWrapper = minHeap.remove();
@@ -229,7 +222,7 @@ private void removeFromStack(URI uri) {
         if (doc == null) return 0;
 
         if (doc.getDocumentTxt() != null) {
-            return doc.getDocumentTxt().getBytes().length;
+            return doc.getDocumentTxt().getBytes(StandardCharsets.UTF_8).length;
         } else {
             return doc.getDocumentBinaryData().length; 
         }
@@ -237,7 +230,7 @@ private void removeFromStack(URI uri) {
     
     private void addToSystem(Document doc) {
         addDocToTrie(doc); 
-        doc.setLastUseTime(System.nanoTime());
+        doc.setLastUseTime(UseClock.now());
         minHeap.insert(new DocumentURIWrapper(doc.getKey()));
         this.docsInRam.add(doc.getKey());
         
@@ -299,7 +292,7 @@ private void removeFromStack(URI uri) {
         byte[] data = input.readAllBytes();
         switch(format) {
             case TXT:
-                text = new String(data);
+                text = new String(data, StandardCharsets.UTF_8);
                 document = new DocumentImpl(uri, text);
                 break;
             case BINARY: 
@@ -316,7 +309,7 @@ private void removeFromStack(URI uri) {
 
         if (doc != null) {
             if (docsInRam.contains(url)) {
-                doc.setLastUseTime(System.nanoTime());
+                doc.setLastUseTime(UseClock.now());
                 minHeap.reHeapify(new DocumentURIWrapper(url));
             } else {
                 addToSystem(doc); 
@@ -326,24 +319,34 @@ private void removeFromStack(URI uri) {
         return doc; 
     }
 
+    /**
+     * Read a document without using it: its last use time doesn't change, and a document on disk stays there.
+     */
+    private Document peek(URI uri) {
+        if (!this.allURIs.contains(uri)) {
+            return null;
+        }
+        if (this.docsInRam.contains(uri)) {
+            return this.storage.get(uri);
+        }
+        try {
+            return this.pm.deserialize(uri);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read " + uri + " from disk", e);
+        }
+    }
+
     @Override
     public boolean delete(URI url) {
-        Document deletedDoc = this.storage.get(url);
-        if (deletedDoc != null) {
-            removeFromSystem(deletedDoc);
-            this.storage.put(url, null);
-            this.allURIs.remove(url); 
+        Document deletedDoc = peek(url);
+        if (deletedDoc == null) {
+            return false;
         }
-        Consumer<URI> undoLogic = (URI targetUri) -> {
-            this.storage.put(targetUri, deletedDoc);
-            if (deletedDoc != null) {
-                this.allURIs.add(targetUri);
-                addToSystem(deletedDoc);
-                enforceLimits();    
-            }      
-        };
-        this.commandStack.push(new GenericCommand<URI>(url, undoLogic));
-        return deletedDoc != null; 
+        removeFromSystem(deletedDoc);
+        this.storage.put(url, null);
+        this.allURIs.remove(url); 
+        undoLogic(url, deletedDoc);
+        return true; 
     }
 
     @Override
@@ -400,7 +403,7 @@ private void removeFromStack(URI uri) {
     }
 
     private List<Document> updateUsage(List<Document> results) {
-        long now = System.nanoTime();
+        long now = UseClock.now();
 
 		for (Document doc : results) {
 			URI uri = doc.getKey();
@@ -412,52 +415,43 @@ private void removeFromStack(URI uri) {
         return results; 
     }
 
+    /**
+     * Rank URIs by score, highest first, reading each document once. Ties go to the lower URI.
+     */
+    private Comparator<URI> byRelevance(ToIntFunction<Document> score) {
+        Map<URI, Integer> scores = new HashMap<>();
+        return (uri1, uri2) -> {
+            int count1 = scores.computeIfAbsent(uri1, uri -> score.applyAsInt(peek(uri)));
+            int count2 = scores.computeIfAbsent(uri2, uri -> score.applyAsInt(peek(uri)));
+            int byCount = Integer.compare(count2, count1);
+            return byCount != 0 ? byCount : uri1.compareTo(uri2);
+        };
+    }
+
+    private List<Document> getResults(List<URI> uris) {
+        List<Document> documentResults = new ArrayList<>();
+        for (URI uri : uris) {
+            documentResults.add(this.get(uri));
+        }
+        return updateUsage(documentResults);
+    }
+
     @Override
     public List<Document> search(String keyword) {
         if (keyword == null) return new ArrayList<>();
 
-		Comparator<URI> relevantDocs = (uri1, uri2) -> {
-			Document doc1 = this.get(uri1); 
-			Document doc2 = this.get(uri2);
-			int count1 = doc1.wordCount(keyword);
-			int count2 = doc2.wordCount(keyword);
-        
-			return Integer.compare(count2, count1);
-        };
-		List<URI> uriResults = this.trie.getSorted(keyword, relevantDocs);
-		List<Document> documentResults = new ArrayList<>();
-		for (URI uri : uriResults) {
-			documentResults.add(this.get(uri)); 
-		}
-        return updateUsage(documentResults); 
+		return getResults(this.trie.getSorted(keyword, byRelevance(doc -> doc.wordCount(keyword))));
     }
 
    @Override
    public List<Document> searchByPrefix(String keywordPrefix) {
-        if (keywordPrefix == null) {
+        if (keywordPrefix == null || keywordPrefix.isBlank()) {
             return new ArrayList<>();
         }
-        Comparator<URI> relevantDocs = (uri1, uri2) -> {
-            int count1 = calculateDocPrecedence(uri1, keywordPrefix);
-            int count2 = calculateDocPrecedence(uri2, keywordPrefix);
-
-            return Integer.compare(count2, count1);
-        };
-        List<URI> results = this.trie.getAllWithPrefixSorted(keywordPrefix, relevantDocs);
-        List<Document> documentResults = new ArrayList<>();
-    	for (URI uri : results) {
-        	documentResults.add(this.get(uri));
-    	}
-		return documentResults; 
+        return getResults(this.trie.getAllWithPrefixSorted(keywordPrefix, byRelevance(doc -> calculateDocPrecedence(doc, keywordPrefix))));
    }
 
-   private int calculateDocPrecedence(URI uri, String keywordPrefix) {
-		Document doc = this.get(uri);
-			
-		if (doc == null) {
-    		return 0; 
-       	}
-           
+   private int calculateDocPrecedence(Document doc, String keywordPrefix) {
         int totalCount = 0; 
         for (String word : doc.getWords()) {
             if (word.startsWith(keywordPrefix)) {
@@ -479,7 +473,7 @@ private void removeFromStack(URI uri) {
         Set<Document> docsToDelete = new HashSet<>();
         
         for (URI uri : urisToDelete) {
-            Document doc = this.storage.get(uri);
+            Document doc = peek(uri);
             if (doc != null) docsToDelete.add(doc);
         }
         if (docsToDelete == null || docsToDelete.isEmpty()) {
@@ -492,6 +486,9 @@ private void removeFromStack(URI uri) {
 
    @Override
    public Set<URI> deleteAllWithPrefix(String keywordPrefix) {
+        if (keywordPrefix == null || keywordPrefix.isBlank()) {
+            return new HashSet<>();
+        }
         Set<URI> deletedUris = new HashSet<>(); 
         CommandSet<URI> commandSet = new CommandSet<>();
 
@@ -501,7 +498,7 @@ private void removeFromStack(URI uri) {
         }
 		List<Document> copyOfDocsToDelete = new ArrayList<>();
 		for (URI uri : prefixUris) {
-			Document doc = this.storage.get(uri);
+			Document doc = peek(uri);
 				if (doc != null) {
         			copyOfDocsToDelete.add(doc); 
     			}
@@ -515,31 +512,7 @@ private void removeFromStack(URI uri) {
        if (keysValues == null || keysValues.isEmpty()) {
            return new ArrayList<>();
        }
-       Set<URI> currentKeys = this.keySet();
-       List <Document> matches = new ArrayList<>();
-       
-       for (URI uri : currentKeys) {
-           Document doc = this.get(uri); 
-            if (doc == null) {
-                continue; 
-            }
-            boolean matchesAll = true; 
-            for (Map.Entry<String, String> entry : keysValues.entrySet()) {
-                String expectedKey = entry.getKey();
-                String expectedValue = entry.getValue();
-
-                String actualValue = doc.getMetadataValue(expectedKey); 
-
-                if (!Objects.equals(actualValue, expectedValue)) {
-                    matchesAll = false; 
-                    break;
-                }
-            }
-            if (matchesAll) {
-                matches.add(doc);
-            }
-        }
-        return updateUsage(matches);      
+       return getResults(urisWithMetadata(this.keySet(), keysValues));
    }
 
    @Override
@@ -547,47 +520,28 @@ private void removeFromStack(URI uri) {
         if (keyword == null || keyword.isBlank() || keysValues == null || keysValues.isEmpty()) {
             return new ArrayList<>();
         }
-		Comparator<URI> relevantDoc = (uri1, uri2) -> {
-			Document doc1 = this.storage.get(uri1);
-			Document doc2 = this.storage.get(uri2);
-
-            int count1 = doc1.wordCount(keyword);
-            int count2 = doc2.wordCount(keyword);
-            return Integer.compare(count2, count1);
-        }; 
-        List<URI> keywordURIs = this.trie.getSorted(keyword, relevantDoc); 
-        List<Document> matches = new ArrayList<>();
-
-        if (keywordURIs.isEmpty()) return matches; 
-		
-		List<Document> keywordDocs = new ArrayList<>();
-		for (URI uri : keywordURIs) {
-			keywordDocs.add(this.get(uri)); 
-		}
-        searchSortedDoc(keywordDocs, matches, keysValues); 
-        return updateUsage(matches); 
+        List<URI> keywordURIs = this.trie.getSorted(keyword, byRelevance(doc -> doc.wordCount(keyword))); 
+        return getResults(urisWithMetadata(keywordURIs, keysValues)); 
    }
 
-   private void searchSortedDoc(List<Document> document, List<Document> matches, Map<String, String> keysValues) {   
-        for (Document doc : document) {
-            if (doc == null) {
-                continue;
-            }
-            boolean matchesAll = true;
-            
-            for (Map.Entry<String, String> entry : keysValues.entrySet()) {
-                String expectedKey = entry.getKey();
-                String expectedValue = entry.getValue();
-                String actualValue = doc.getMetadataValue(expectedKey);
-                if (!Objects.equals(actualValue, expectedValue)) {
-                    matchesAll = false; 
-                    break; 
-                }
-            }
-            if (matchesAll) {
-                matches.add(doc); 
+   private List<URI> urisWithMetadata(List<URI> uris, Map<String, String> keysValues) {
+        List<URI> matches = new ArrayList<>();
+        for (URI uri : uris) {
+            Document doc = peek(uri);
+            if (doc != null && hasMetadata(doc, keysValues)) {
+                matches.add(uri);
             }
         }
+        return matches;
+   }
+
+   private boolean hasMetadata(Document doc, Map<String, String> keysValues) {
+        for (Map.Entry<String, String> entry : keysValues.entrySet()) {
+            if (!Objects.equals(doc.getMetadataValue(entry.getKey()), entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
    }
 
    @Override
@@ -595,22 +549,8 @@ private void removeFromStack(URI uri) {
         if (keywordPrefix == null || keywordPrefix.isBlank() || keysValues == null || keysValues.isEmpty()) {
             return new ArrayList<>();
         }
-		Comparator<URI> relevantDoc = (uri1, uri2) -> {
-            int count1 = calculateDocPrecedence(uri1, keywordPrefix); 
-            int count2 = calculateDocPrecedence(uri2, keywordPrefix); 
-            return Integer.compare(count2, count1); 
-        };
-        List<URI> prefixUris = this.trie.getAllWithPrefixSorted(keywordPrefix, relevantDoc);
-        List<Document> matches = new ArrayList<>();
-        
-        if (prefixUris.isEmpty()) return matches;
-		
-		List<Document> prefixDocs = new ArrayList<>();
-		for (URI uri : prefixUris) {
-			prefixDocs.add(this.get(uri));
-		}
-        searchSortedDoc(prefixDocs, matches, keysValues);
-        return updateUsage(matches);     
+        List<URI> prefixUris = this.trie.getAllWithPrefixSorted(keywordPrefix, byRelevance(doc -> calculateDocPrecedence(doc, keywordPrefix)));
+        return getResults(urisWithMetadata(prefixUris, keysValues));     
    }
 
    @Override
@@ -618,16 +558,11 @@ private void removeFromStack(URI uri) {
        if (keysValues == null || keysValues.isEmpty()) {
            return new HashSet<>();
        }
-        Set<URI> currentKeys = this.keySet(); 
         Set<Document> docsToDelete = new HashSet<>();
 
-        for (URI uri : currentKeys) {
-            Document doc = this.get(uri);
-            if (doc != null) {
-                docsToDelete.add(doc);
-            }
+        for (URI uri : urisWithMetadata(this.keySet(), keysValues)) {
+            docsToDelete.add(peek(uri));
         }
-        filterDocsByMetadata(docsToDelete, keysValues);
 
         CommandSet<URI> commandSet = new CommandSet<>();
         Set<URI> deletedUris = new HashSet<>();
@@ -637,7 +572,9 @@ private void removeFromStack(URI uri) {
     }
 
     private void deleteDocFromSystem(Collection<Document> docsToDelete, Set<URI> deletedUris, CommandSet<URI> commandSet) {
-        for (Document doc : docsToDelete) {
+        List<Document> docsInUriOrder = new ArrayList<>(docsToDelete);
+        docsInUriOrder.sort(Comparator.comparing(Document::getKey));
+        for (Document doc : docsInUriOrder) {
             URI uri = doc.getKey();
             removeFromSystem(doc);
             this.storage.put(uri, null);
@@ -670,7 +607,7 @@ private void removeFromStack(URI uri) {
 		}
         Set<Document> docsToDelete = new HashSet<>();
         for (URI uri : urisToDelete) {
-            Document doc = this.storage.get(uri);
+            Document doc = peek(uri);
             if (doc != null) docsToDelete.add(doc);
         }
         if (docsToDelete.isEmpty()) {
@@ -690,20 +627,7 @@ private void removeFromStack(URI uri) {
 
 
     private void filterDocsByMetadata(Collection<Document> docsToDelete, Map<String, String> keysValues) {
-        List<Document> toRemove = new ArrayList<>();
-		for (Document doc : docsToDelete) {
-            if (doc == null) {
-                toRemove.add(doc);
-                continue;
-            }
-            for (Map.Entry<String, String> entry : keysValues.entrySet()) {
-                if (!Objects.equals(doc.getMetadataValue(entry.getKey()), entry.getValue())) {
-                    toRemove.add(doc);
-                    break;
-                }
-            }
-        }
-        docsToDelete.removeAll(toRemove);
+        docsToDelete.removeIf(doc -> doc == null || !hasMetadata(doc, keysValues));
     }
 
     @Override
@@ -718,7 +642,7 @@ private void removeFromStack(URI uri) {
 		}
 		List<Document> prefixDocsToDelete = new ArrayList<>();
     	for (URI uri : prefixUrisToDelete){
-       		Document doc = this.storage.get(uri);
+       		Document doc = peek(uri);
         	if (doc != null) prefixDocsToDelete.add(doc);
     	}
         filterDocsByMetadata(prefixDocsToDelete, keysValues);
@@ -727,8 +651,10 @@ private void removeFromStack(URI uri) {
         return deletedUris;
     }
     
-    private Set<URI> keySet() {
-        return new HashSet<>(this.allURIs);
+    private List<URI> keySet() {
+        List<URI> uris = new ArrayList<>(this.allURIs);
+        Collections.sort(uris);
+        return uris;
     }
 
 }
